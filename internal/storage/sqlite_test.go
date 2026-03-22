@@ -1,20 +1,11 @@
 package storage
 
 import (
-	"strings"
 	"testing"
 )
 
-func skipIfNoSQLite(t *testing.T, err error) {
-	t.Helper()
-	if err != nil && strings.Contains(err.Error(), "CGO_ENABLED") {
-		t.Skip("github.com/mattn/go-sqlite3 requires CGO")
-	}
-}
-
 func TestSQLiteSaveLoadRoundTrip(t *testing.T) {
 	repo, err := NewSQLiteRepo(":memory:")
-	skipIfNoSQLite(t, err)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +37,6 @@ func TestSQLiteSaveLoadRoundTrip(t *testing.T) {
 
 func TestSQLiteLoadMissingRowIsFreshPlayer(t *testing.T) {
 	repo, err := NewSQLiteRepo(":memory:")
-	skipIfNoSQLite(t, err)
 	if err != nil {
 		t.Fatal(err)
 	}

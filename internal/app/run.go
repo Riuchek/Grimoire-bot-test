@@ -19,15 +19,17 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("discord session: %w", err)
 	}
 
-	repo, err := storage.NewSQLiteRepo(cfg.DBPath)
+	sqliteRepo, err := storage.NewSQLiteRepo(cfg.DBPath)
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)
 	}
 	defer func() {
-		if err := repo.Close(); err != nil {
+		if err := sqliteRepo.Close(); err != nil {
 			slog.Error("close database", "err", err)
 		}
 	}()
+
+	repo := &bot.LoggingPlayerRepository{Inner: sqliteRepo}
 
 	loaded, err := repo.LoadPlayers(cfg.Names)
 	if err != nil {
@@ -38,6 +40,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 
 	var registerCmd sync.Once
 	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		logDiscordInteraction(i)
 		switch i.Type {
 		case discordgo.InteractionApplicationCommand:
 			g.RespondSlashGrimoire(s, i)

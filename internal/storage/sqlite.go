@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"grimoire/internal/status"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type SQLiteRepo struct {
@@ -14,7 +14,7 @@ type SQLiteRepo struct {
 }
 
 func NewSQLiteRepo(path string) (*SQLiteRepo, error) {
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}

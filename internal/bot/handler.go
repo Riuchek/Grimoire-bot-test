@@ -3,7 +3,6 @@ package bot
 import (
 	"fmt"
 	"grimoire/internal/status"
-	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,9 +55,7 @@ func parseModalCustomID(id string) (msgID string, statsModal bool, ok bool) {
 }
 
 func (b *GrimoireBot) persistSave(p *status.Player) {
-	if err := b.Repo.SavePlayer(p); err != nil {
-		slog.Error("save player failed", "player", p.Name(), "err", err)
-	}
+	_ = b.Repo.SavePlayer(p)
 }
 
 func (b *GrimoireBot) RespondSlashGrimoire(s *discordgo.Session, i *discordgo.InteractionCreate) {
