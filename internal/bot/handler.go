@@ -91,7 +91,7 @@ func (b *GrimoireBot) RenderTable(focus string) string {
 	}
 	sb.WriteString("--------------------------------------------------\n")
 	if focus != "" {
-		sb.WriteString(fmt.Sprintf("\x1b[1;32mFoco Atual: %s\x1b[0m\n", focus))
+		sb.WriteString(fmt.Sprintf("\x1b[1;32mJogador Selecionado: %s\x1b[0m\n", focus))
 	}
 	sb.WriteString("```")
 	return sb.String()
