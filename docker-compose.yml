@@ -1,0 +1,15 @@
+services:
+  grimoire:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      GRIMOIRE_DB_PATH: /data/grimoire.db
+    volumes:
+      - grimoire-data:/data
+
+volumes:
+  grimoire-data:
