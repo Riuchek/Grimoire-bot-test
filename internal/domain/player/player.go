@@ -55,3 +55,33 @@ func (p *Player) LoadStats(n20, n1, dt, dm, ct, cm, q, m int, custom string) {
 	p.mortes = m
 	p.custom = custom
 }
+
+type PlayerSnapshot struct {
+	Nat20     int
+	Nat1      int
+	DanoTotal int
+	DanoMax   int
+	CuraTotal int
+	CuraMax   int
+	Quedas    int
+	Mortes    int
+	Custom    string
+}
+
+func (p *Player) Snapshot() PlayerSnapshot {
+	return PlayerSnapshot{
+		Nat20:     p.nat20,
+		Nat1:      p.nat1,
+		DanoTotal: p.danoTotal,
+		DanoMax:   p.danoMax,
+		CuraTotal: p.curaTotal,
+		CuraMax:   p.curaMax,
+		Quedas:    p.quedas,
+		Mortes:    p.mortes,
+		Custom:    p.custom,
+	}
+}
+
+func (p *Player) RestoreSnapshot(s PlayerSnapshot) {
+	p.LoadStats(s.Nat20, s.Nat1, s.DanoTotal, s.DanoMax, s.CuraTotal, s.CuraMax, s.Quedas, s.Mortes, s.Custom)
+}

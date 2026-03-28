@@ -29,3 +29,17 @@ func TestPlayerIncrements(t *testing.T) {
 		t.Fatalf("increments: n20=%d n1=%d q=%d m=%d", p.SucessoCritico(), p.FalhaCritica(), p.Quedas(), p.Mortes())
 	}
 }
+
+func TestPlayerSnapshotRoundTrip(t *testing.T) {
+	p := New("z")
+	p.AddNat20()
+	p.UpdateStats(3, 2, 1, 0)
+	p.SetCustom("x")
+	before := p.Snapshot()
+	p.AddNat1()
+	p.AddQueda()
+	p.RestoreSnapshot(before)
+	if p.SucessoCritico() != 1 || p.FalhaCritica() != 0 || p.DanoTotal() != 3 || p.Custom() != "x" || p.Quedas() != 0 {
+		t.Fatalf("after restore: n20=%d n1=%d d=%d custom=%q q=%d", p.SucessoCritico(), p.FalhaCritica(), p.DanoTotal(), p.Custom(), p.Quedas())
+	}
+}

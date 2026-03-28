@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"fmt"
 	"grimoire/internal/domain/player"
 	"strconv"
 	"strings"
@@ -15,11 +14,17 @@ const (
 	modalCustomPrefix = "modal_custom:"
 )
 
+type undoEntry struct {
+	player string
+	snap   player.PlayerSnapshot
+}
+
 type GrimoireBot struct {
 	Players      []string
 	PlayersStats map[string]*player.Player
 	Repo         player.Repository
 	activeByMsg  map[string]string
+	undoByMsg    map[string][]undoEntry
 	Mu           sync.Mutex
 }
 
@@ -29,7 +34,29 @@ func NewGrimoireBot(names []string, players map[string]*player.Player, repo play
 		PlayersStats: players,
 		Repo:         repo,
 		activeByMsg:  make(map[string]string),
+		undoByMsg:    make(map[string][]undoEntry),
 	}
+}
+
+const maxUndoPerMessage = 50
+
+func (b *GrimoireBot) recordUndo(msgID, playerName string, before player.PlayerSnapshot) {
+	s := append(b.undoByMsg[msgID], undoEntry{player: playerName, snap: before})
+	if len(s) > maxUndoPerMessage {
+		s = s[len(s)-maxUndoPerMessage:]
+	}
+	b.undoByMsg[msgID] = s
+}
+
+func (b *GrimoireBot) popUndo(msgID string) bool {
+	s := b.undoByMsg[msgID]
+	if len(s) == 0 {
+		return false
+	}
+	last := s[len(s)-1]
+	b.undoByMsg[msgID] = s[:len(s)-1]
+	b.PlayersStats[last.player].RestoreSnapshot(last.snap)
+	return true
 }
 
 func interactionMessageID(ic *discordgo.Interaction) string {
@@ -62,32 +89,6 @@ func (b *GrimoireBot) RespondSlashGrimoire(s *discordgo.Session, i *discordgo.In
 	})
 }
 
-func (b *GrimoireBot) RenderTable(focus string) string {
-	var sb strings.Builder
-	sb.WriteString("```ansi\n")
-	sb.WriteString("\x1b[1;34m==================================================\x1b[0m\n")
-	sb.WriteString("           📖 \x1b[1;37mGRIMOIRE: AUTOS DA AVENTURA\x1b[0m\n")
-	sb.WriteString("\x1b[1;34m==================================================\x1b[0m\n")
-	sb.WriteString("\x1b[1;33mJOGADOR  | Sucesso Critico | Falha Critica | D.TOTAL | D.MAX | C.TOTAL | C.MAX | Queda | Morte \x1b[0m\n")
-	sb.WriteString("--------------------------------------------------\n")
-
-	for _, name := range b.Players {
-		p := b.PlayersStats[name]
-		row := fmt.Sprintf("%-8s | %-3d | %-2d | %-7d | %-5d | %-7d | %-5d | %-1d | %-1d\n",
-			p.Name(), p.SucessoCritico(), p.FalhaCritica(), p.DanoTotal(), p.DanoMax(), p.CuraTotal(), p.CuraMax(), p.Quedas(), p.Mortes())
-		if p.Custom() != "" {
-			row += fmt.Sprintf(" └─ \x1b[0;32m%s\x1b[0m\n", p.Custom())
-		}
-		sb.WriteString(row)
-	}
-	sb.WriteString("--------------------------------------------------\n")
-	if focus != "" {
-		sb.WriteString(fmt.Sprintf("\x1b[1;32mJogador Selecionado: %s\x1b[0m\n", focus))
-	}
-	sb.WriteString("```")
-	return sb.String()
-}
-
 func (b *GrimoireBot) CreateComponents() []discordgo.MessageComponent {
 	var options []discordgo.SelectMenuOption
 	for _, name := range b.Players {
@@ -96,7 +97,7 @@ func (b *GrimoireBot) CreateComponents() []discordgo.MessageComponent {
 
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.SelectMenu{CustomID: "select_player", Placeholder: "👤 Selecionar Jogador", Options: options},
+			discordgo.SelectMenu{CustomID: "select_player", Placeholder: "Quem recebe as ações do painel", Options: options},
 		}},
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 			discordgo.Button{Label: "Sucesso Critico", CustomID: "add_n20", Style: discordgo.SuccessButton},
@@ -107,6 +108,7 @@ func (b *GrimoireBot) CreateComponents() []discordgo.MessageComponent {
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 			discordgo.Button{Label: "📝 Registrar Dano/Cura", CustomID: "open_modal", Style: discordgo.PrimaryButton},
 			discordgo.Button{Label: "⚙️ Custom", CustomID: "open_custom", Style: discordgo.SecondaryButton},
+			discordgo.Button{Label: "↩ Desfazer", CustomID: "undo_last", Style: discordgo.SecondaryButton},
 		}},
 	}
 }
@@ -145,16 +147,29 @@ func (b *GrimoireBot) HandleComponents(s *discordgo.Session, i *discordgo.Intera
 	needsSave := false
 	switch id {
 	case "add_n20":
+		b.recordUndo(msgID, focus, p.Snapshot())
 		p.AddNat20()
 		needsSave = true
 	case "add_n1":
+		b.recordUndo(msgID, focus, p.Snapshot())
 		p.AddNat1()
 		needsSave = true
 	case "add_q":
+		b.recordUndo(msgID, focus, p.Snapshot())
 		p.AddQueda()
 		needsSave = true
 	case "add_m":
+		b.recordUndo(msgID, focus, p.Snapshot())
 		p.AddMorte()
+		needsSave = true
+	case "undo_last":
+		if !b.popUndo(msgID) {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Content: "Nada para desfazer.", Flags: discordgo.MessageFlagsEphemeral},
+			})
+			return
+		}
 		needsSave = true
 	case "open_modal":
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -227,6 +242,8 @@ func (b *GrimoireBot) HandleModals(s *discordgo.Session, i *discordgo.Interactio
 
 	p := b.PlayersStats[focus]
 	d := i.ModalSubmitData()
+
+	b.recordUndo(msgID, focus, p.Snapshot())
 
 	if statsModal {
 		dano_total, _ := strconv.Atoi(d.Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value)
