@@ -30,6 +30,17 @@ func TestPlayerIncrements(t *testing.T) {
 	}
 }
 
+func TestPlayerClearAll(t *testing.T) {
+	p := New("Ada")
+	p.AddNat20()
+	p.UpdateStats(5, 4, 3, 2)
+	p.SetCustom("x")
+	p.ClearAll()
+	if p.SucessoCritico() != 0 || p.DanoTotal() != 0 || p.Custom() != "" {
+		t.Fatalf("ClearAll: n20=%d dano=%d custom=%q", p.SucessoCritico(), p.DanoTotal(), p.Custom())
+	}
+}
+
 func TestPlayerSnapshotRoundTrip(t *testing.T) {
 	p := New("z")
 	p.AddNat20()

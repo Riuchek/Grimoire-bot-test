@@ -1,48 +1,58 @@
-# Architecture
+# Arquitetura
 
-Grimoire is a Discord bot that shows a shared “adventure stats” panel (critical hits, damage, healing, falls, deaths, custom notes). This document explains how the Go packages fit together.
+O **Grimoire** é um bot de Discord que exibe um painel compartilhado de estatísticas de mesa (críticos, dano, cura, quedas, mortes e anotações por jogador). Este documento descreve como os pacotes Go se organizam, como os dados fluem até o SQLite e onde entram validação e observabilidade.
 
-## What runs where
+## Visão em camadas
 
-1. **`cmd/grimoire`** — Loads environment/config, sets up signal-based shutdown (`SIGINT` / `SIGTERM`), and calls `app.Run`.
-2. **`internal/app`** — Wires everything: opens the Discord session, opens SQLite, wraps the DB with `LoggingPlayerRepository`, loads players, builds `GrimoireBot`, registers slash command and interaction handlers, blocks until the context is cancelled.
-3. **`internal/bot`** — Discord-only logic: slash `/grimoire`, buttons, select menu, modals, rendering the ANSI table. It depends on **`player.Repository`** (interface), not on SQLite directly.
-4. **`internal/domain/player`** — The **`Player`** aggregate (stats + name) and the **`Repository`** port (save/load). No Discord imports.
-5. **`internal/storage`** — **`SQLiteRepo`** implements **`player.Repository`**: creates the `players` table if needed, upserts rows, loads by name list.
-6. **`internal/config`** — Reads `DISCORD_TOKEN`, optional `GRIMOIRE_DB_PATH`, optional comma-separated `GRIMOIRE_PLAYERS`, and walks upward from the working directory to find a `.env` file.
+| Camada | Pacote | Responsabilidade |
+|--------|--------|------------------|
+| Entrada | `cmd/grimoire` | Carrega configuração, trata sinal de encerramento (`SIGINT` / `SIGTERM`) e chama `app.Run`. |
+| Composição | `internal/app` | Abre a sessão Discord, abre o SQLite, envolve o repositório com logging, carrega jogadores, instancia `GrimoireBot`, registra o comando slash e os handlers de interação; bloqueia até o contexto ser cancelado. |
+| Adaptador Discord | `internal/bot` | Comando `/grimoire`, componentes de mensagem (select, botões, modals), renderização da tabela ANSI. Depende apenas da interface `player.Repository`, não do SQLite. |
+| Domínio | `internal/domain/player` | Agregado `Player`, regras de incremento e atualização, validação e sanitização (`validate.go`), porta `Repository`. Sem imports de Discord. |
+| Infraestrutura | `internal/storage` | `SQLiteRepo`: migração mínima (CREATE TABLE), upsert e carga por lista de nomes. |
+| Configuração | `internal/config` | `DISCORD_TOKEN`, `GRIMOIRE_DB_PATH`, `GRIMOIRE_PLAYERS`; busca `.env` subindo diretórios; validação de nomes de jogadores na carga. |
 
-## Repository wiring (important)
+## Domínio e portas (DDD enxuto)
 
-At startup, `app` does **not** pass `SQLiteRepo` straight into the bot. It wraps it:
+- **Agregado:** `Player` concentra nome, contadores, totais de dano/cura e texto custom. Operações como `AddNat20`, `UpdateStats`, `SetCustom` aplicam regras e limites no próprio pacote.
+- **Porta:** `Repository` define `SavePlayer` e `LoadPlayers` sem revelar SQL ou Discord.
+- **Adaptadores:** `internal/bot` (UI) e `internal/storage` (SQLite) implementam ou consomem essa porta; eles **não** dependem um do outro.
+
+Isso mantém o núcleo testável com `go test` sem subir gateway Discord ou disco, exceto nos testes de integração do SQLite.
+
+## Inversão de dependências e decorator
+
+Na subida, o `app` **não** injeta `SQLiteRepo` direto no bot. A cadeia é:
 
 ```text
-SQLiteRepo  →  LoggingPlayerRepository{Inner: sqliteRepo}  →  GrimoireBot.Repo
+SQLiteRepo  →  LoggingPlayerRepository{ Inner: sqliteRepo }  →  GrimoireBot.Repo
 ```
 
-`LoggingPlayerRepository` implements the same **`player.Repository`** interface; it forwards calls to `SQLiteRepo` and logs duration and errors. So “bot talks to domain interface; concrete DB + logging are composed in `app`.”
+`LoggingPlayerRepository` implementa o mesmo `player.Repository`: repassa chamadas ao repositório interno e registra duração e erro com `slog`. O bot só conhece a interface; composição concreta e política de log ficam no `app`.
 
-## Package dependency diagram
+## Diagrama de dependências entre pacotes
 
 ```mermaid
 flowchart TB
-  subgraph entry["Entry"]
+  subgraph entry["Entrada"]
     main["cmd/grimoire"]
   end
 
-  subgraph wiring["Composition / runtime"]
+  subgraph wiring["Composição"]
     app["internal/app"]
   end
 
-  subgraph discord["Discord UI"]
+  subgraph discord["Adaptador Discord"]
     bot["internal/bot"]
   end
 
-  subgraph domain["Domain"]
-    playerpkg["internal/domain/player\n(Player + Repository interface)"]
+  subgraph domain["Domínio"]
+    playerpkg["internal/domain/player\nPlayer + Repository"]
   end
 
-  subgraph infra["Infrastructure"]
-    storage["internal/storage\n(SQLiteRepo)"]
+  subgraph infra["Infraestrutura"]
+    storage["internal/storage\nSQLiteRepo"]
   end
 
   config["internal/config"]
@@ -55,25 +65,43 @@ flowchart TB
   storage --> playerpkg
 ```
 
-- **`app`** imports **`bot`** and **`storage`** and connects them.
-- **`bot`** and **`storage`** both import **`domain/player`**; they do not import each other.
+- `app` importa `bot` e `storage` e liga tudo.
+- `bot` e `storage` importam apenas `domain/player`; não há dependência entre `bot` e `storage`.
 
-## Interaction flow (user → persistence)
+## Fluxo de interação (usuário → persistência)
 
-1. **Slash `/grimoire`** — Bot replies with a message: table content + action rows (player select, stat buttons, modals).
-2. **Message components** (select / buttons) — Handler locks a mutex, maps the **panel message ID** to the **selected player** (`activeByMsg`). If no player is selected yet, some actions reply with an ephemeral error. Updates that change stats call **`Repo.SavePlayer`** then **`InteractionResponseUpdateMessage`** to refresh the table on the same message.
-3. **Modal submit** — `CustomID` is prefixed (`modal_data:` or `modal_custom:`) plus the message ID so the handler can find which panel and which focused player to update; then save and update the message.
+1. **`/grimoire`** — Resposta com mensagem contendo tabela + linhas de componentes (select, botões, abertura de modais).
+2. **Componentes** (select / botões) — Mutex global no bot; mapa **`activeByMsg`** associa o **ID da mensagem do painel** ao **jogador selecionado**. Sem jogador focado, ações relevantes respondem com mensagem **ephemeral**. Alterações que mudam estado chamam `Repo.SavePlayer` e depois `InteractionResponseUpdateMessage` para atualizar a mesma mensagem. Ações adicionais incluem **limpar** os dados do jogador focado (`ClearAll` no domínio) e abrir o modal **editar jogador** (estado completo em até cinco campos, por limite da API do Discord).
+3. **Modal** — `CustomID` usa prefixo (`modal_data:`, `modal_custom:` ou `modal_edit_full:`) + ID da mensagem para recuperar o painel; o handler valida o formato do ID (somente dígitos, comprimento compatível com snowflake do Discord). Validação dos campos numéricos e do texto custom ocorre **antes** de aplicar mudanças e de empilhar undo; em falha de persistência, o fluxo pode reverter o último passo com a pilha de desfazer.
 
-`app` also logs each interaction type (command / component / modal) with `slog` (`logDiscordInteraction`), using public Discord IDs only—no secrets in logs.
+O `app` registra cada tipo de interação (comando / componente / modal) em `logDiscordInteraction`, usando apenas identificadores públicos do Discord — sem token ou segredo nos logs.
 
-## SQLite schema (summary)
+## Validação, sanitização e banco
 
-Table **`players`**: primary key **`name`**, integer columns for nat20, nat1, damage totals/max, healing totals/max, falls, deaths, and **`custom`** text.
+- **SQL:** todas as escritas e leituras usam **parâmetros posicionais** (`?`), sem concatenar entrada do usuário na query — base para evitar injeção de SQL.
+- **Domínio:** funções como `ValidateName`, `ParseModalStatInt`, `SanitizeCustom` e `ValidateForPersistence` concentram limites (tamanhos, faixas numéricas, ausência de caracteres de controle) e UTF-8 seguro (`ToValidUTF8` onde aplicável).
+- **Carga do SQLite:** `LoadStats` normaliza valores fora da faixa (clamp) e sanitiza o texto custom, mitigando linhas antigas ou arquivo alterado manualmente.
+- **Escrita:** `SQLiteRepo.SavePlayer` chama `ValidateForPersistence` antes do `INSERT`/`UPDATE`; falhas de validação não chegam ao banco.
 
-## Main dependencies
+Tratamento de erro no handler de modais evita expor detalhes internos ao usuário final; mensagens genéricas ou de validação são preferíveis a textos de driver ou stack.
 
-| Module | Role |
-|--------|------|
-| `github.com/bwmarrin/discordgo` | Discord API and gateway |
-| `modernc.org/sqlite` | SQLite driver (pure Go, no CGO) |
-| `github.com/joho/godotenv` | Optional `.env` loading |
+## Estado em memória e concorrência
+
+- Um **mutex** protege `PlayersStats`, `activeByMsg` e `undoByMsg` durante handlers.
+- **Undo** é por **ID de mensagem** do painel, com limite de entradas por mensagem, para não crescer sem teto.
+
+## Esquema SQLite (resumo)
+
+Tabela **`players`**: chave primária **`name`** (TEXT), colunas inteiras para `nat20`, `nat1`, `dano_total`, `dano_max`, `cura_total`, `cura_max`, `quedas`, `mortes`, e **`custom`** (TEXT). A criação é feita no `Open` do repositório; não há migrações versionadas separadas no repositório atual.
+
+## Dependências principais
+
+| Módulo | Função |
+|--------|--------|
+| `github.com/bwmarrin/discordgo` | API e gateway Discord |
+| `modernc.org/sqlite` | Driver SQLite em Go puro (sem CGO) |
+| `github.com/joho/godotenv` | Carga opcional de `.env` |
+
+## Evolução sugerida (alinhado ao README)
+
+Camada de **casos de uso** (`internal/application`), **value objects** para nome/estatísticas, **migrações** de schema explícitas, **CI** com `go test` e análise estática, e métricas mais ricas são próximos passos naturais sem quebrar a separação atual entre domínio, adaptador Discord e infraestrutura. Ver também o [README principal](../README.md#como-evoluir-o-código-escala-e-qualidade).

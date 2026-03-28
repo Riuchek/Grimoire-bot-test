@@ -74,6 +74,22 @@ func ValidateName(name string) error {
 	return nil
 }
 
+func ParseModalIntFields(s string, want int) ([]int, error) {
+	fields := strings.Fields(strings.TrimSpace(s))
+	if len(fields) != want {
+		return nil, ErrInvalidStats
+	}
+	out := make([]int, want)
+	for i := range fields {
+		v, err := ParseModalStatInt(fields[i])
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
 func ParseModalStatInt(s string) (int, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {

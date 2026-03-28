@@ -125,17 +125,21 @@ func TestUndoStackRestoresPlayer(t *testing.T) {
 	}
 }
 
-func TestParseModalCustomID(t *testing.T) {
-	id, stats, ok := parseModalCustomID("modal_data:123456789")
-	if !ok || !stats || id != "123456789" {
-		t.Fatalf("modal_data: got id=%q stats=%v ok=%v", id, stats, ok)
+func TestParseModalID(t *testing.T) {
+	id, k, ok := parseModalID("modal_data:123456789")
+	if !ok || k != modalKindDanoCura || id != "123456789" {
+		t.Fatalf("modal_data: got id=%q kind=%v ok=%v", id, k, ok)
 	}
-	id2, stats2, ok2 := parseModalCustomID("modal_custom:999")
-	if !ok2 || stats2 || id2 != "999" {
-		t.Fatalf("modal_custom: got id=%q stats=%v ok=%v", id2, stats2, ok2)
+	id2, k2, ok2 := parseModalID("modal_custom:999")
+	if !ok2 || k2 != modalKindCustom || id2 != "999" {
+		t.Fatalf("modal_custom: got id=%q kind=%v ok=%v", id2, k2, ok2)
 	}
-	_, _, ok3 := parseModalCustomID("other")
-	if ok3 {
+	id3, k3, ok3 := parseModalID("modal_edit_full:888")
+	if !ok3 || k3 != modalKindEditFull || id3 != "888" {
+		t.Fatalf("modal_edit_full: got id=%q kind=%v ok=%v", id3, k3, ok3)
+	}
+	_, _, ok4 := parseModalID("other")
+	if ok4 {
 		t.Fatal("expected false for unknown prefix")
 	}
 }

@@ -60,6 +60,10 @@ func (p *Player) SetCustom(text string) {
 	p.custom = SanitizeCustom(text)
 }
 
+func (p *Player) ClearAll() {
+	p.LoadStats(0, 0, 0, 0, 0, 0, 0, 0, "")
+}
+
 func (p *Player) LoadStats(n20, n1, dt, dm, ct, cm, q, m int, custom string) {
 	p.nat20 = clampCounter(n20)
 	p.nat1 = clampCounter(n1)

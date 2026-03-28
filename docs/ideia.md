@@ -6,7 +6,7 @@ O **Grimoire** é um bot para **Discord** pensado para mesas de RPG (por exemplo
 
 1. Usa o comando slash **`/grimoire`** para abrir uma mensagem com a tabela e os controles.
 2. **Seleciona um jogador** no menu antes de usar botões ou modais (o foco fica associado àquela mensagem do painel).
-3. Registra eventos com botões (N20, N1, Queda, Morte) ou abre modais para **editar dano/cura** ou **custom** (texto curto).
+3. Registra eventos com botões (N20, N1, Queda, Morte), abre modais para **editar dano/cura**, **custom**, **editar tudo** (counters, dano/cura, quedas/mortes e anotação) ou **limpa** os dados do jogador selecionado.
 
 Os dados são **persistidos em SQLite**, então o painel pode ser reaberto depois de reiniciar o bot sem perder o histórico salvo.
 

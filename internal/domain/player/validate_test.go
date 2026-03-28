@@ -32,6 +32,16 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
+func TestParseModalIntFields(t *testing.T) {
+	got, err := ParseModalIntFields("1 2 3 4", 4)
+	if err != nil || len(got) != 4 || got[0] != 1 || got[3] != 4 {
+		t.Fatalf("got %v err=%v", got, err)
+	}
+	if _, err := ParseModalIntFields("1 2", 4); err == nil {
+		t.Fatal("expected error for wrong field count")
+	}
+}
+
 func TestParseModalStatInt(t *testing.T) {
 	v, err := ParseModalStatInt(" 42 ")
 	if err != nil || v != 42 {
