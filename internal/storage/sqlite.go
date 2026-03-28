@@ -49,6 +49,9 @@ func (r *SQLiteRepo) Close() error {
 }
 
 func (r *SQLiteRepo) SavePlayer(p *player.Player) error {
+	if err := player.ValidateForPersistence(p); err != nil {
+		return err
+	}
 	query := `
 	INSERT INTO players (name, nat20, nat1, dano_total, dano_max, cura_total, cura_max, quedas, mortes, custom)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

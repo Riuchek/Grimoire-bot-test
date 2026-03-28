@@ -28,32 +28,48 @@ func (p *Player) Quedas() int         { return p.quedas }
 func (p *Player) Mortes() int         { return p.mortes }
 func (p *Player) Custom() string      { return p.custom }
 
-func (p *Player) AddNat20() { p.nat20++ }
-func (p *Player) AddNat1()  { p.nat1++ }
-func (p *Player) AddQueda() { p.quedas++ }
-func (p *Player) AddMorte() { p.mortes++ }
+func (p *Player) AddNat20() {
+	if p.nat20 < maxCounterValue {
+		p.nat20++
+	}
+}
+func (p *Player) AddNat1() {
+	if p.nat1 < maxCounterValue {
+		p.nat1++
+	}
+}
+func (p *Player) AddQueda() {
+	if p.quedas < maxCounterValue {
+		p.quedas++
+	}
+}
+func (p *Player) AddMorte() {
+	if p.mortes < maxCounterValue {
+		p.mortes++
+	}
+}
 
 func (p *Player) UpdateStats(dTotal, dMax, cTotal, cMax int) {
-	p.danoTotal = dTotal
-	p.danoMax = dMax
-	p.curaTotal = cTotal
-	p.curaMax = cMax
+	p.danoTotal = clampStat(dTotal)
+	p.danoMax = clampStat(dMax)
+	p.curaTotal = clampStat(cTotal)
+	p.curaMax = clampStat(cMax)
 }
 
 func (p *Player) SetCustom(text string) {
-	p.custom = text
+	p.custom = SanitizeCustom(text)
 }
 
 func (p *Player) LoadStats(n20, n1, dt, dm, ct, cm, q, m int, custom string) {
-	p.nat20 = n20
-	p.nat1 = n1
-	p.danoTotal = dt
-	p.danoMax = dm
-	p.curaTotal = ct
-	p.curaMax = cm
-	p.quedas = q
-	p.mortes = m
-	p.custom = custom
+	p.nat20 = clampCounter(n20)
+	p.nat1 = clampCounter(n1)
+	p.danoTotal = clampStat(dt)
+	p.danoMax = clampStat(dm)
+	p.curaTotal = clampStat(ct)
+	p.curaMax = clampStat(cm)
+	p.quedas = clampCounter(q)
+	p.mortes = clampCounter(m)
+	p.custom = SanitizeCustom(custom)
 }
 
 type PlayerSnapshot struct {

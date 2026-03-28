@@ -2,6 +2,8 @@ package storage
 
 import (
 	"testing"
+
+	"grimoire/internal/domain/player"
 )
 
 func TestSQLiteSaveLoadRoundTrip(t *testing.T) {
@@ -52,5 +54,20 @@ func TestSQLiteLoadMissingRowIsFreshPlayer(t *testing.T) {
 	}
 	if p.SucessoCritico() != 0 || p.Name() != "Nobody" {
 		t.Fatalf("expected fresh player, got n20=%d name=%q", p.SucessoCritico(), p.Name())
+	}
+}
+
+func TestSQLiteSavePlayerRejectsInvalid(t *testing.T) {
+	repo, err := NewSQLiteRepo(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+
+	if err := repo.SavePlayer(nil); err == nil {
+		t.Fatal("expected error for nil player")
+	}
+	if err := repo.SavePlayer(player.New("")); err == nil {
+		t.Fatal("expected error for empty name")
 	}
 }

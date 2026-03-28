@@ -1,10 +1,12 @@
 package bot
 
 import (
+	"errors"
 	"grimoire/internal/domain/player"
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -74,6 +76,34 @@ func parseModalCustomID(id string) (msgID string, statsModal bool, ok bool) {
 		return rest, false, true
 	}
 	return "", false, false
+}
+
+func validPanelMessageID(id string) bool {
+	if len(id) < 17 || len(id) > 22 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		if id[i] < '0' || id[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+const maxDiscordModalTextRunes = 4000
+
+func validateCustomModalInput(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if !utf8.ValidString(raw) {
+		return player.ErrInvalidCustom
+	}
+	if utf8.RuneCountInString(raw) > maxDiscordModalTextRunes {
+		return player.ErrInvalidCustom
+	}
+	return nil
 }
 
 func (b *GrimoireBot) RespondSlashGrimoire(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -209,7 +239,17 @@ func (b *GrimoireBot) HandleComponents(s *discordgo.Session, i *discordgo.Intera
 	}
 
 	if needsSave {
-		_ = b.Repo.SavePlayer(p)
+		if err := b.Repo.SavePlayer(p); err != nil {
+			b.popUndo(msgID)
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Nao foi possivel salvar os dados. Tente novamente.",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			return
+		}
 	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -223,7 +263,7 @@ func (b *GrimoireBot) HandleModals(s *discordgo.Session, i *discordgo.Interactio
 	defer b.Mu.Unlock()
 
 	msgID, statsModal, ok := parseModalCustomID(i.ModalSubmitData().CustomID)
-	if !ok {
+	if !ok || !validPanelMessageID(msgID) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "Formulario invalido.", Flags: discordgo.MessageFlagsEphemeral},
@@ -243,19 +283,52 @@ func (b *GrimoireBot) HandleModals(s *discordgo.Session, i *discordgo.Interactio
 	p := b.PlayersStats[focus]
 	d := i.ModalSubmitData()
 
-	b.recordUndo(msgID, focus, p.Snapshot())
-
 	if statsModal {
-		dano_total, _ := strconv.Atoi(d.Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value)
-		dano_max, _ := strconv.Atoi(d.Components[1].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value)
-		cura_total, _ := strconv.Atoi(d.Components[2].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value)
-		cura_max, _ := strconv.Atoi(d.Components[3].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value)
-		p.UpdateStats(dano_total, dano_max, cura_total, cura_max)
+		statVals := make([]int, 4)
+		for row := 0; row < 4; row++ {
+			v, err := player.ParseModalStatInt(d.Components[row].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value)
+			if err != nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Valores invalidos. Use apenas numeros inteiros de 0 a 999999999.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			statVals[row] = v
+		}
+		b.recordUndo(msgID, focus, p.Snapshot())
+		p.UpdateStats(statVals[0], statVals[1], statVals[2], statVals[3])
 	} else {
-		p.SetCustom(d.Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value)
+		raw := d.Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
+		if err := validateCustomModalInput(raw); err != nil {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Texto custom invalido (tamanho ou caracteres nao permitidos).",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			return
+		}
+		b.recordUndo(msgID, focus, p.Snapshot())
+		p.SetCustom(raw)
 	}
 
-	_ = b.Repo.SavePlayer(p)
+	if err := b.Repo.SavePlayer(p); err != nil {
+		b.popUndo(msgID)
+		msg := "Nao foi possivel salvar os dados. Tente novamente."
+		if errors.Is(err, player.ErrInvalidCustom) || errors.Is(err, player.ErrInvalidStats) || errors.Is(err, player.ErrInvalidName) {
+			msg = "Dados rejeitados por validacao de seguranca."
+		}
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{Content: msg, Flags: discordgo.MessageFlagsEphemeral},
+		})
+		return
+	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,

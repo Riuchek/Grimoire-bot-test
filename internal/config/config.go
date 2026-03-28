@@ -1,9 +1,12 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"grimoire/internal/domain/player"
 
 	"github.com/joho/godotenv"
 )
@@ -14,13 +17,19 @@ type Config struct {
 	Names  []string
 }
 
-func Load() Config {
+func Load() (Config, error) {
 	loadDotEnv()
+	names := playerNames()
+	for _, n := range names {
+		if err := player.ValidateName(n); err != nil {
+			return Config{}, fmt.Errorf("GRIMOIRE_PLAYERS name %q: %w", n, err)
+		}
+	}
 	return Config{
 		Token:  strings.TrimSpace(os.Getenv("DISCORD_TOKEN")),
 		DBPath: dbPath(),
-		Names:  playerNames(),
-	}
+		Names:  names,
+	}, nil
 }
 
 func dbPath() string {

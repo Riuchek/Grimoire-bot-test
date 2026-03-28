@@ -12,7 +12,10 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
 	if cfg.Token == "" {
 		log.Fatal("DISCORD_TOKEN is not set")
 	}

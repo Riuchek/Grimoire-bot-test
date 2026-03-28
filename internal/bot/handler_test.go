@@ -139,3 +139,12 @@ func TestParseModalCustomID(t *testing.T) {
 		t.Fatal("expected false for unknown prefix")
 	}
 }
+
+func TestValidPanelMessageID(t *testing.T) {
+	if !validPanelMessageID("12345678901234567") {
+		t.Fatal("expected valid snowflake length")
+	}
+	if validPanelMessageID("123") || validPanelMessageID("abc123456789012345") {
+		t.Fatal("expected invalid id")
+	}
+}
